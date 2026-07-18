@@ -1,0 +1,156 @@
+(ns deepfishery.governor-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [deepfishery.store :as store]
+            [deepfishery.advisor :as advisor]
+            [deepfishery.governor :as governor]))
+
+(defn- fresh-store []
+  (let [st (store/mem-store)]
+    (store/register-vessel! st {:vessel-id "V-1" :name "FV Kotoba"})
+    (store/register-crew-member! st {:crew-id "crew-1" :name "A. Seaman"
+                                     :vessel-id "V-1"})
+    st))
+
+(def ^:private req {:crew-id "crew-1"})
+
+(defn- proposal [overrides]
+  (merge {:op :log-catch-record :effect :propose :vessel-id "V-1"
+         :confidence 0.9 :stake :low}
+        overrides))
+
+(deftest ok-log-catch-record
+  (let [st (fresh-store)
+        v (governor/check req {} (proposal {}) st)]
+    (is (:ok? v))))
+
+(deftest ok-within-threshold-supply-order
+  (let [st (fresh-store)
+        v (governor/check req {}
+                          (proposal {:op :coordinate-supply-order :cost 500}) st)]
+    (is (:ok? v))))
+
+(deftest ok-at-exact-cost-threshold-boundary
+  (testing "the supply-order cost threshold is inclusive"
+    (let [st (fresh-store)
+          v (governor/check req {}
+                            (proposal {:op :coordinate-supply-order
+                                       :cost governor/supply-order-cost-threshold}) st)]
+      (is (:ok? v)))))
+
+(deftest hard-on-unregistered-crew-member
+  (let [st (fresh-store)
+        v (governor/check {:crew-id "nobody"} {} (proposal {}) st)]
+    (is (:hard? v))
+    (is (some #(= :no-crew-member (:rule %)) (:violations v)))))
+
+(deftest hard-on-unregistered-vessel
+  (let [st (fresh-store)
+        v (governor/check req {} (proposal {:vessel-id "V-ghost"}) st)]
+    (is (:hard? v))
+    (is (some #(= :no-vessel (:rule %)) (:violations v)))))
+
+(deftest hard-on-crew-wrong-vessel
+  (let [st (fresh-store)]
+    (store/register-vessel! st {:vessel-id "V-2" :name "FV Other"})
+    (let [v (governor/check req {} (proposal {:vessel-id "V-2"}) st)]
+      (is (:hard? v))
+      (is (some #(= :crew-wrong-vessel (:rule %)) (:violations v))))))
+
+(deftest hard-on-no-actuation-violation
+  (let [st (fresh-store)
+        v (governor/check req {} (proposal {:effect :direct-write}) st)]
+    (is (:hard? v))
+    (is (some #(= :no-actuation (:rule %)) (:violations v)))))
+
+(deftest hard-on-op-not-in-allowlist
+  (testing "closed op-allowlist — no op can directly finalize a fishing-operation-execution decision or a voyage go/no-go decision"
+    (let [st (fresh-store)
+          v (governor/check req {} (proposal {:op :finalize-fishing-operation}) st)]
+      (is (:hard? v))
+      (is (some #(= :op-not-allowed (:rule %)) (:violations v))))))
+
+(deftest hard-on-scope-exclusion-fishing-operation-finalization-phrase
+  (testing "even within an allowed op, free text finalizing a fishing operation is a permanent hard block"
+    (let [st (fresh-store)
+          v (governor/check req {}
+                            (proposal {:rationale "recommend we proceed with the fishing operation now"}) st)]
+      (is (:hard? v))
+      (is (some #(= :scope-exclusion (:rule %)) (:violations v))))))
+
+(deftest hard-on-scope-exclusion-voyage-go-no-go-phrase
+  (testing "even within an allowed op, free text deciding to commence the voyage in adverse conditions is a permanent hard block"
+    (let [st (fresh-store)
+          v (governor/check req {}
+                            (proposal {:op :schedule-crew-operation
+                                       :rationale "advisor will commence the voyage in adverse conditions regardless"}) st)]
+      (is (:hard? v))
+      (is (some #(= :scope-exclusion (:rule %)) (:violations v))))))
+
+(deftest hard-on-scope-exclusion-captain-override-phrase
+  (testing "overriding the vessel captain's judgment is a permanent hard block"
+    (let [st (fresh-store)
+          v (governor/check req {}
+                            (proposal {:detail "override the captain's voyage decision on this call"}) st)]
+      (is (:hard? v))
+      (is (some #(= :scope-exclusion (:rule %)) (:violations v))))))
+
+(deftest always-escalates-safety-concern-even-at-high-confidence
+  (testing "equipment defect, weather hazard and crew fatigue concerns always reach a human"
+    (let [st (fresh-store)
+          v (governor/check req {}
+                            (proposal {:op :flag-safety-concern :concern-type :weather-hazard
+                                       :confidence 0.99}) st)]
+      (is (not (:hard? v)))
+      (is (:escalate? v)))))
+
+(deftest always-escalates-over-threshold-supply-order-even-at-high-confidence
+  (let [st (fresh-store)
+        v (governor/check req {}
+                          (proposal {:op :coordinate-supply-order :cost 9000
+                                     :confidence 0.99}) st)]
+    (is (not (:hard? v)))
+    (is (:escalate? v))))
+
+(deftest escalates-low-confidence
+  (let [st (fresh-store)
+        v (governor/check req {} (proposal {:confidence 0.3}) st)]
+    (is (not (:hard? v)))
+    (is (:escalate? v))))
+
+;; ---------------------------------------------------------------
+;; Known self-tripping bug pattern (see deepfishery.advisor docstring
+;; and deepfishery.governor docstring, invariant 6): the domain
+;; legitimately mentions bare nouns "fishing" (logging a catch record
+;; from today's fishing trip) and "weather" (flagging a weather
+;; hazard) in ordinary, in-scope proposals. Assert the mock advisor's
+;; DEFAULT proposals — across every allowed op, including ones whose
+;; default rationale text mentions "fishing" or "weather" — never
+;; trip the :scope-exclusion rule.
+;; ---------------------------------------------------------------
+
+(def ^:private default-requests
+  [{:crew-id "crew-1" :vessel-id "V-1" :op :log-catch-record
+    :species "tuna" :quantity-kg 500
+    :entry-text "no incidents during today's fishing trip" :stake :low}
+   {:crew-id "crew-1" :vessel-id "V-1" :op :schedule-crew-operation
+    :stake :low}
+   {:crew-id "crew-1" :vessel-id "V-1" :op :flag-safety-concern
+    :concern-type :weather-hazard
+    :detail "heavy weather forecast expected during the next watch"
+    :stake :low}
+   {:crew-id "crew-1" :vessel-id "V-1" :op :flag-safety-concern
+    :concern-type :equipment-defect
+    :detail "trawl winch showing signs of wear" :stake :low}
+   {:crew-id "crew-1" :vessel-id "V-1" :op :coordinate-supply-order
+    :items ["ice" "bait"] :cost 500 :stake :low}])
+
+(deftest never-self-trips-on-default-mock-advisor-proposals
+  (testing "bare nouns like 'fishing'/'weather' in ordinary in-scope proposals never trip scope-exclusion"
+    (let [st (fresh-store)
+          mock (advisor/mock-advisor)]
+      (doseq [request default-requests]
+        (let [p (advisor/-advise mock st request)
+              v (governor/check request {} p st)]
+          (is (not (some #(= :scope-exclusion (:rule %)) (:violations v)))
+              (str "self-tripped on default proposal for " (:op request)
+                   ": " (pr-str p))))))))
