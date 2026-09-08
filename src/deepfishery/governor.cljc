@@ -70,7 +70,7 @@
     8. :coordinate-supply-order cost above `supply-order-cost-threshold`.
     9. low confidence (< `confidence-floor`)."
   (:require [deepfishery.store :as store]
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 (def confidence-floor 0.6)
 (def supply-order-cost-threshold 2000)
@@ -99,7 +99,7 @@
    "override the captain"])
 
 (defn- scope-text [proposal]
-  (str/lower-case (str/join " " (keep proposal [:rationale :detail :action]))))
+  (str/lower (str/join " " (keep proposal [:rationale :detail :action]))))
 
 (defn- scope-violation? [proposal]
   (let [text (scope-text proposal)]
