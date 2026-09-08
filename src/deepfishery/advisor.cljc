@@ -34,7 +34,7 @@
   'override the captain's voyage decision'. See `deepfishery.governor`
   and `deepfishery.advisor-test`/`deepfishery.governor-test`'s
   never-self-trips assertions."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (defprotocol Advisor
   (-advise [advisor store request] "request -> proposal map"))
