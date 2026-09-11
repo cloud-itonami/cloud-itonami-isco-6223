@@ -16,7 +16,7 @@ renting a closed maritime crewing SaaS.
 (`deepfishery.governor`), following the itonami actor pattern
 (ADR-2607121000): `:intake -> :advise -> :govern -> :decide -+-> :commit
 (:ok?) +-> :request-approval (:escalate?, human-in-the-loop interrupt)
-+-> :hold (:hard?)`. See `clojure -M:test` output for the current
++-> :hold (:hard?)`. See `kbb -M:test` output for the current
 test/assertion count.
 
 HARD invariants (always hold, never overridable): crew-member and vessel
