@@ -1,0 +1,36 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:physics` runs it.
+;;
+;; README "Robotics premise": a crew-scheduling and equipment-logistics robot
+;; performs watch/duty scheduling, catch-record logging and supply-order
+;; coordination for deep-sea fishery workers (ISCO 6223). It never fishes or
+;; navigates. Its physical work is supply logistics aboard: moving provisioned
+;; supply crates from the gangway to the stores, and checking that the frozen
+;; hold's insulation keeps the hold face cold enough for stored catch.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isco-6223"
+ :cases
+ [{:id :supply-crate-gangway-to-stores
+   :kind :transport
+   :procedure "logistics robot moves a provisioned supply crate 30 m from the gangway to the ship's stores in port"
+   :params {:mass-kg 60.0 :distance-m 30.0 :v-max-mps 0.6 :a-max-mps2 0.3
+            :brake-decel-mps2 0.5 :drive-force-n 120.0 :crr 0.02
+            :cog-height-m 0.40 :support-half-length-m 0.30}
+   :sweep {:param :payload-kg :values [10.0 30.0 60.0 100.0 150.0]}
+   :quantity :cycle-time-s
+   :limit {:max 90.0 :basis "estimate: provisioning ~40 crates must finish within the 1-hour port turnaround slot"}
+   :boundary {:lo 5.0 :hi 600.0}}
+  {:id :frozen-hold-insulation
+   :kind :thermal
+   :procedure "equipment logistics: 24 h of 30 °C engine-room air on the outside of a polyurethane hold-insulation panel; inner face of the -25 °C frozen hold"
+   :params {:conductivity-w-mk 0.025 :density-kg-m3 40.0 :specific-heat-j-kgk 1500.0
+            :t0-c -25.0 :t-hot-c 30.0 :h-front-w-m2k 10.0
+            :t-back-ambient-c -25.0 :h-back-w-m2k 5.0
+            :threshold-c -18.0 :duration-s 86400.0}
+   :sweep {:param :thickness-m :values [0.025 0.050 0.075 0.100 0.150]}
+   :quantity :final-back-c
+   :limit {:max -18.0 :basis "estimate: frozen fish is stored at -18 °C or colder, so the hold's inner face should not rise above -18 °C"}
+   :boundary {:lo 0.005 :hi 0.2}}]}
