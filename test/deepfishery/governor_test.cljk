@@ -1,5 +1,5 @@
 (ns deepfishery.governor-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [deepfishery.store :as store]
             [deepfishery.advisor :as advisor]
             [deepfishery.governor :as governor]))
