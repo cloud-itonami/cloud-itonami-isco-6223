@@ -1,7 +1,7 @@
 (ns deepfishery.store
   "SSoT for the ISCO-08 6223 Deep-sea Fishery Workers vessel/crew
   scheduling and logistics actor (itonami actor pattern,
-  ADR-2607121000 / CLAUDE.md Actors section; README's 'Robotics
+  ADR-2607121000 / AGENTS.md Actors section; README's 'Robotics
   premise' — this actor coordinates VESSEL/CREW SCHEDULING LOGISTICS
   ONLY. It never performs a fishing operation itself and never
   navigates the vessel: the fishing-operation-execution decision and
